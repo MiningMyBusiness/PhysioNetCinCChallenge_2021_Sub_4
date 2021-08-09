@@ -57,6 +57,7 @@ class OVR_DNN:
         self._y_train = y_train
         self._filename = filename
         if self._X_train is not None:
+            self.find_imp_feats()
             self.train_base_models()
             self.train_stk_models()
         if self._filename is not None:
@@ -64,20 +65,31 @@ class OVR_DNN:
             self.load_models()
         
         
-        
-    def train_base_models(self):
+    def find_imp_feats(self):    
         self.split_data()
         estimators = self.get_models()
         first_one = True
         feat_imp_sums = np.zeros(self._X_train.shape[1])
         for pair in estimators:
-            print('Training base model', pair[0])
+            print('Training base model to find feature importances', pair[0])
             pair[1].fit(self._X_train, self._y_train)
             for est in pair[1].estimators_:
                 if hasattr(est[1], 'feature_importances_'):
                     feat_imp_sums += est[1].feature_importances_
-        self._base_models = estimators
         self._imp_feats = feat_imp_sums > np.mean(feat_imp_sums)
+        self._X_train = self.limit_to_imp_feats(self._X_train)
+        self._X_val = self.limit_to_imp_feats(self._X_val)
+    
+    
+    
+    def train_base_models(self):
+        estimators = self.get_models()
+        first_one = True
+        for pair in estimators:
+            print('Training base model with important features', pair[0])
+            pair[1].fit(self._X_train, self._y_train)
+        self._base_models = estimators
+        
         
         
         
@@ -127,14 +139,15 @@ class OVR_DNN:
             else:
                 y_prob = np.concatenate((y_prob, this_y_prob), axis=1)
                 
-        stk_brf = BalancedRandomForestClassifier(n_estimators=400, n_jobs=-1)
-        ovr_stk_brf = OneVsRestClassifier(stk_brf)
-        ovr_stk_brf.fit(y_prob, self._y_val)
-        self._stk_model = ovr_stk_brf
+        stk_et = make_pipeline_with_sampler(RandomUnderSampler(), ExtraTreesClassifier(n_jobs=-1))
+        ovr_stk_et = OneVsRestClassifier(stk_et)
+        ovr_stk_et.fit(y_prob, self._y_val)
+        self._stk_model = ovr_stk_et
     
     
     
     def predict(self, X_test):
+        X_test = self.limit_to_imp_feats(X_test)
         for i,model in enumerate(self._base_models):
             this_y_prob = model[1].predict_proba(X_test)
             if i == 0:
@@ -148,6 +161,7 @@ class OVR_DNN:
     
     
     def predict_proba(self, X_test):
+        X_test = self.limit_to_imp_feats(X_test)
         for i,model in enumerate(self._base_models):
             this_y_prob = model[1].predict_proba(X_test)
             if i == 0:
@@ -183,6 +197,11 @@ class OVR_DNN:
         self._base_models = model_dict['base_models']
         self._imp_feats = model_dict['imp_feats']
         self._stk_model = model_dict['stk_model']
+        
+        
+    def limit_to_imp_feats(self, X):
+        X = X[:, self._imp_feats]
+        return X
     
     
     
