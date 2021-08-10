@@ -108,7 +108,7 @@ def training_code(data_directory, model_directory):
         my_ovr = OVR_DNN(X_train=features, y_train=labels)
 
         # Save the model.
-        save_model(model_directory, leads, shaper_object, my_ovr, leads)
+        save_model(model_directory, leads, shaper, my_ovr)
 
 ################################################################################
 #
@@ -156,7 +156,7 @@ def run_model(model, header, recording):
 ################################################################################
 
 # Save a trained model. This function is not required. You can change or remove it.
-def save_model(model_directory, leads, shaper_object, my_ovr, leads):
+def save_model(model_directory, leads, shaper_object, my_ovr):
     filename = get_model_filename(leads)
     filename = os.path.join(model_directory, filename)
     # save encoder

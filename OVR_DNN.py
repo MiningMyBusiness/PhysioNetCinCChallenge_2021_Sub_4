@@ -27,8 +27,6 @@ from sklearn.multioutput import ClassifierChain
 from sklearn.linear_model import LogisticRegression
 from sklearn.cross_decomposition import CCA
 
-from xgboost import XGBClassifier
-
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
 
@@ -44,9 +42,6 @@ from imblearn.under_sampling import RandomUnderSampler
 from imblearn.over_sampling import RandomOverSampler 
 
 from timeit import default_timer
-
-
-import matplotlib.pyplot as plt
 
 import glob
 
@@ -74,8 +69,12 @@ class OVR_DNN:
             print('Training base model to find feature importances', pair[0])
             pair[1].fit(self._X_train, self._y_train)
             for est in pair[1].estimators_:
-                if hasattr(est[1], 'feature_importances_'):
-                    feat_imp_sums += est[1].feature_importances_
+                try:
+                    if hasattr(est[1], 'feature_importances_'):
+                        print('Found estimator with feature importances!...')
+                        feat_imp_sums += est[1].feature_importances_
+                except:
+                    print('DOES NOT HAVE FEATURE IMPORTANCES')
         self._imp_feats = feat_imp_sums > np.mean(feat_imp_sums)
         self._X_train = self.limit_to_imp_feats(self._X_train)
         self._X_val = self.limit_to_imp_feats(self._X_val)
