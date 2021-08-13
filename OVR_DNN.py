@@ -6,6 +6,7 @@ from sklearn.model_selection import train_test_split
 from skmultilearn.model_selection import iterative_train_test_split
 from sklearn.metrics import classification_report
 from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_curve
 
 from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.neighbors import RadiusNeighborsClassifier
@@ -78,6 +79,7 @@ class OVR_DNN:
         self._imp_feats = feat_imp_sums > np.mean(feat_imp_sums)
         self._X_train = self.limit_to_imp_feats(self._X_train)
         self._X_val = self.limit_to_imp_feats(self._X_val)
+        self._X_test = self.limit_to_imp_feats(self._X_test)
     
     
     
@@ -115,17 +117,24 @@ class OVR_DNN:
     
     def split_data(self):
         print('Splitting data into training and validation set to train DNNs...')
-        X_train, y_train, X_val, y_val = iterative_train_test_split(self._X_train, 
+        X_train, y_train, X_test, y_test = iterative_train_test_split(self._X_train, 
                                                               self._y_train, 
-                                                              test_size = 0.35)
+                                                              test_size = 0.25)
+        X_train, y_train, X_val, y_val = iterative_train_test_split(X_train, 
+                                                              y_train, 
+                                                              test_size = 0.25)
         self._X_train = X_train
         self._y_train = y_train
         self._X_val = X_val
         self._y_val = y_val
+        self._X_test = X_test
+        self._y_test = y_test
         print('Train data:', X_train.shape)
         print('Train labels:', y_train.shape)
         print('Val data:', X_val.shape)
         print('Val labels:', y_val.shape)
+        print('Test data:', X_test.shape)
+        print('Test labels:', y_test.shape)
             
             
     def train_stk_models(self):
@@ -142,7 +151,29 @@ class OVR_DNN:
         ovr_stk_et = OneVsRestClassifier(stk_et)
         ovr_stk_et.fit(y_prob, self._y_val)
         self._stk_model = ovr_stk_et
-    
+        self.train_thresholds()
+        
+        
+    def train_thresholds(self):
+        print('Training threshold probability of stacking model...')
+        for i,model in enumerate(self._base_models):
+            print('  Getting probabilities for testing set...')
+            this_y_prob = model[1].predict_proba(self._X_test)
+            if i == 0:
+                y_prob = this_y_prob
+            else:
+                y_prob = np.concatenate((y_prob, this_y_prob), axis=1)
+                
+        y_prob_ovr = self._stk_model.predict_proba(y_prob)
+        threshs = []
+        for i in range(y_prob_ovr.shape[1]):
+            fpr, tpr, thresholds = roc_curve(self._y_test[:,i], y_prob_ovr[:,i])
+            # get the best threshold
+            J = tpr - fpr
+            ix = np.argmax(J)
+            best_thresh = thresholds[ix]
+            threshs.append(best_thresh)
+        self._threshs = np.array(threshs)
     
     
     def predict(self, X_test):
@@ -154,7 +185,9 @@ class OVR_DNN:
             else:
                 y_prob = np.concatenate((y_prob, this_y_prob), axis=1)
         
-        y_pred_test = self._stk_model.predict(y_prob)
+        y_pred_test = self._stk_model.predict_proba(y_prob)
+        for i in range(y_pred_test.shape[1]):
+            y_pred_test[:,i] = (y_pred_test[:,i] >= self._threshs[i]).astype(float)
         return y_pred_test
     
     
@@ -177,7 +210,8 @@ class OVR_DNN:
         model_dict = {
             'base_models': self._base_models,
             'imp_feats': self._imp_feats,
-            'stk_model': self._stk_model
+            'stk_model': self._stk_model,
+            'threshs': self._threshs
         }
         stk_filename = filename.split('.pick')[0] + '_ovr_imb_models.pickle'
         with open(stk_filename, 'wb') as handle:
@@ -196,6 +230,7 @@ class OVR_DNN:
         self._base_models = model_dict['base_models']
         self._imp_feats = model_dict['imp_feats']
         self._stk_model = model_dict['stk_model']
+        self._threshs = model_dict['threshs']
         
         
     def limit_to_imp_feats(self, X):
